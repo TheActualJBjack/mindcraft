@@ -112,6 +112,44 @@ export async function craftRecipe(bot, itemName, num=1) {
     return true;
 }
 
+export async function leadAnimal(bot, animal_name, x, y, z) {
+    /**
+     * Lead an animal to the given position.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {string} animal_name, the name of the animal to lead.
+     * @param {number} x, the x coordinate to lead the animal to.
+     * @param {number} y, the y coordinate to lead the animal to.
+     * @param {number} z, the z coordinate to lead the animal to.
+     * @returns {Promise<boolean>} true if the animal was lead, false otherwise.
+     * @example
+     * await skills.leadAnimal(bot, "cow", 100, 64, 100);
+     **/
+    const lead = bot.inventory.items().find(item => item.name === 'lead');
+    if (!lead) {
+        log(bot, "No lead in inventory.");
+        return false;
+    }
+
+    const animal = bot.nearestEntity(entity => entity.name === animal_name);
+    if (!animal) {
+        log(bot, `Could not find a ${animal_name} nearby.`);
+        return false;
+    }
+
+    await goToPosition(bot, animal.position.x, animal.position.y, animal.position.z);
+
+    await bot.equip(lead, 'hand');
+    await bot.useOn(animal);
+    log(bot, `Attached lead to ${animal_name}.`);
+
+    await goToPosition(bot, x, y, z);
+
+    await bot.useOn(animal);
+    log(bot, `Detached lead from ${animal_name}.`);
+
+    return true;
+}
+
 export async function wait(bot, milliseconds) {
     /**
      * Waits for the given number of milliseconds.
@@ -1620,6 +1658,144 @@ export async function buildPillar(bot, height) {
     return true;
 }
 
+export async function buildStairs(bot, direction, height) {
+    /**
+     * Build a staircase of the given height.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {string} direction, the direction to build the stairs in. Can be 'forward', 'backward', 'left', 'right'.
+     * @param {number} height, the height of the staircase.
+     * @returns {Promise<boolean>} true if the staircase was built, false otherwise.
+     * @example
+     * await skills.buildStairs(bot, "forward", 10);
+     **/
+    const movements = createMovements(bot);
+    const hasScaffolding = movements.scafoldingBlocks.some(id => bot.inventory.hasItem(id));
+    if (!hasScaffolding) {
+        log(bot, "Cannot build stairs: No scaffolding blocks in inventory.");
+        return false;
+    }
+
+    const lookVec = bot.entity.lookVec.clone();
+    lookVec.y = 0;
+    lookVec.normalize();
+
+    let dir;
+    if (direction === 'forward') {
+        dir = lookVec;
+    } else if (direction === 'backward') {
+        dir = lookVec.scaled(-1);
+    } else if (direction === 'left') {
+        dir = new Vec3(-lookVec.z, 0, lookVec.x);
+    } else if (direction === 'right') {
+        dir = new Vec3(lookVec.z, 0, -lookVec.x);
+    } else {
+        log(bot, `Invalid direction: ${direction}.`);
+        return false;
+    }
+
+    log(bot, `Building a staircase of height ${height} in direction ${direction}.`);
+
+    for (let i = 0; i < height; i++) {
+        const scaffolding_item = movements.scafoldingBlocks.find(id => bot.inventory.hasItem(id));
+        if (scaffolding_item) {
+            const item = mc.getItemName(scaffolding_item);
+            const current_pos = bot.entity.position.floored();
+            await placeBlock(bot, item, current_pos.x + dir.x, current_pos.y + i, current_pos.z + dir.z);
+            await goToPosition(bot, current_pos.x + dir.x, current_pos.y + i + 1, current_pos.z + dir.z);
+        } else {
+            log(bot, "Ran out of scaffolding blocks.");
+            return false;
+        }
+    }
+
+    log(bot, "Finished building staircase.");
+    return true;
+}
+
+export async function buildSpiralStaircase(bot, height) {
+    /**
+     * Build a spiral staircase of the given height.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {number} height, the height of the staircase.
+     * @returns {Promise<boolean>} true if the staircase was built, false otherwise.
+     * @example
+     * await skills.buildSpiralStaircase(bot, 10);
+     **/
+    const movements = createMovements(bot);
+    const hasScaffolding = movements.scafoldingBlocks.some(id => bot.inventory.hasItem(id));
+    if (!hasScaffolding) {
+        log(bot, "Cannot build spiral staircase: No scaffolding blocks in inventory.");
+        return false;
+    }
+
+    log(bot, `Building a spiral staircase of height ${height}.`);
+
+    let direction = 0; // 0: forward, 1: right, 2: backward, 3: left
+    for (let i = 0; i < height; i++) {
+        const scaffolding_item = movements.scafoldingBlocks.find(id => bot.inventory.hasItem(id));
+        if (scaffolding_item) {
+            const item = mc.getItemName(scaffolding_item);
+            const current_pos = bot.entity.position.floored();
+            let place_pos;
+            if (direction === 0) {
+                place_pos = current_pos.offset(1, i, 0);
+            } else if (direction === 1) {
+                place_pos = current_pos.offset(0, i, 1);
+            } else if (direction === 2) {
+                place_pos = current_pos.offset(-1, i, 0);
+            } else {
+                place_pos = current_pos.offset(0, i, -1);
+            }
+            await placeBlock(bot, item, place_pos.x, place_pos.y, place_pos.z);
+            await goToPosition(bot, place_pos.x, place_pos.y + 1, place_pos.z);
+            direction = (direction + 1) % 4;
+        } else {
+            log(bot, "Ran out of scaffolding blocks.");
+            return false;
+        }
+    }
+
+    log(bot, "Finished building spiral staircase.");
+    return true;
+}
+
+export async function tradeWithVillager(bot) {
+    /**
+     * Find a nearby villager and view its trades.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @returns {Promise<boolean>} true if a villager was found, false otherwise.
+     * @example
+     * await skills.tradeWithVillager(bot);
+     **/
+    const villager = bot.nearestEntity(entity => entity.name === 'villager');
+    if (!villager) {
+        log(bot, "Could not find a villager nearby.");
+        return false;
+    }
+
+    await goToPosition(bot, villager.position.x, villager.position.y, villager.position.z);
+
+    const trade_window = await bot.openVillager(villager);
+    if (trade_window) {
+        log(bot, "Opened trade window with villager.");
+        const trades = trade_window.trades;
+        if (trades) {
+            log(bot, "Available trades:");
+            for (const trade of trades) {
+                log(bot, `${trade.inputItem1.count} ${trade.inputItem1.name} + ${trade.inputItem2 ? trade.inputItem2.count : ''} ${trade.inputItem2 ? trade.inputItem2.name : ''} => ${trade.outputItem.count} ${trade.outputItem.name}`);
+            }
+        } else {
+            log(bot, "No trades available.");
+        }
+        await bot.closeWindow(trade_window);
+    } else {
+        log(bot, "Failed to open trade window with villager.");
+        return false;
+    }
+
+    return true;
+}
+
 export async function swim(bot, x, y, z) {
     /**
      * Swim to the given position.
@@ -1636,6 +1812,25 @@ export async function swim(bot, x, y, z) {
     bot.pathfinder.setMovements(movements);
     await goToPosition(bot, x, y, z);
     return true;
+}
+
+export async function setPathfindingProfile(bot, profile) {
+    /**
+     * Set the pathfinding profile.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {string} profile, the name of the profile to set. Can be 'safe', 'fast', or 'builder'.
+     * @returns {Promise<boolean>} true if the profile was set, false otherwise.
+     * @example
+     * await skills.setPathfindingProfile(bot, "fast");
+     **/
+    if (bot.pathfinding.profiles[profile]) {
+        bot.pathfinding.current_profile = profile;
+        log(bot, `Pathfinding profile set to ${profile}.`);
+        return true;
+    } else {
+        log(bot, `Invalid pathfinding profile: ${profile}.`);
+        return false;
+    }
 }
 
 export async function buildAndUseBoat(bot, x, y, z) {

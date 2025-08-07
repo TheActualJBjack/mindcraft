@@ -4,16 +4,20 @@ import * as mc from '../../utils/mcdata.js';
 
 export function createMovements(bot) {
     const movements = new pf.Movements(bot);
+    const profile = bot.pathfinding.profiles[bot.pathfinding.current_profile];
+
     movements.canOpenDoors = true;
     const blocksToAvoid = ['lava', 'fire', 'cactus'].map(name => mc.getBlockId(name)).filter(id => id !== null);
     movements.blocksToAvoid = new Set(blocksToAvoid);
-    movements.allow1by1towers = true;
+    movements.allow1by1towers = profile.allow1by1towers;
     movements.scafoldingBlocks = [
         mc.getBlockId('dirt'),
         mc.getBlockId('cobblestone'),
         mc.getBlockId('netherrack')
     ].filter(id => id !== null);
-    movements.liquidCost = 0.5;
+    movements.liquidCost = profile.liquidCost;
+    movements.allowParkour = profile.allowParkour;
+    movements.placeCost = profile.placeCost;
     return movements;
 }
 

@@ -53,6 +53,30 @@ export class Agent {
         console.log(this.name, 'logging into minecraft...');
         this.bot = initBot(this.name);
 
+        this.pathfinding = {
+            current_profile: "safe",
+            profiles: {
+                "safe": {
+                    "liquidCost": 10,
+                    "allowParkour": false,
+                    "allow1by1towers": true,
+                    "placeCost": 5,
+                },
+                "fast": {
+                    "liquidCost": 0.5,
+                    "allowParkour": true,
+                    "allow1by1towers": true,
+                    "placeCost": 10,
+                },
+                "builder": {
+                    "liquidCost": 100,
+                    "allowParkour": false,
+                    "allow1by1towers": true,
+                    "placeCost": 1,
+                }
+            }
+        }
+
         initModes(this);
 
         this.bot.on('login', () => {
