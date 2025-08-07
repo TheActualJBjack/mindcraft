@@ -13,6 +13,7 @@ export function createMovements(bot) {
         mc.getBlockId('cobblestone'),
         mc.getBlockId('netherrack')
     ].filter(id => id !== null);
+    movements.liquidCost = 0.5;
     return movements;
 }
 

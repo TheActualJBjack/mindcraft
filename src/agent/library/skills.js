@@ -1619,3 +1619,100 @@ export async function buildPillar(bot, height) {
     log(bot, "Finished building pillar.");
     return true;
 }
+
+export async function swim(bot, x, y, z) {
+    /**
+     * Swim to the given position.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {number} x, the x coordinate to swim to.
+     * @param {number} y, the y coordinate to swim to.
+     * @param {number} z, the z coordinate to swim to.
+     * @returns {Promise<boolean>} true if the position was reached, false otherwise.
+     * @example
+     * await skills.swim(bot, 100, 64, 100);
+     **/
+    const movements = createMovements(bot);
+    movements.liquidCost = 0.1;
+    bot.pathfinder.setMovements(movements);
+    await goToPosition(bot, x, y, z);
+    return true;
+}
+
+export async function buildAndUseBoat(bot, x, y, z) {
+    /**
+     * Build a boat and use it to go to the given position.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {number} x, the x coordinate to go to.
+     * @param {number} y, the y coordinate to go to.
+     * @param {number} z, the z coordinate to go to.
+     * @returns {Promise<boolean>} true if the position was reached, false otherwise.
+     * @example
+     * await skills.buildAndUseBoat(bot, 100, 64, 100);
+     **/
+    let boat = bot.inventory.items().find(item => item.name.endsWith('_boat'));
+    if (!boat) {
+        log(bot, "No boat in inventory, trying to craft one.");
+        // find any type of wood planks
+        const wood_planks = bot.inventory.items().find(item => item.name.endsWith('_planks'));
+        if (!wood_planks || wood_planks.count < 5) {
+            log(bot, "Not enough wood planks to craft a boat.");
+            return false;
+        }
+        const boat_name = wood_planks.name.replace('_planks', '_boat');
+        await craftRecipe(bot, boat_name);
+        boat = bot.inventory.items().find(item => item.name.endsWith('_boat'));
+        if (!boat) {
+            log(bot, "Failed to craft a boat.");
+            return false;
+        }
+    }
+
+    const suitable_place = await findSuitablePlaceToLaunchBoat(bot);
+    if (!suitable_place) {
+        log(bot, "Could not find a suitable place to launch the boat.");
+        return false;
+    }
+
+    await goToPosition(bot, suitable_place.x, suitable_place.y, suitable_place.z);
+
+    await bot.equip(boat, 'hand');
+    const boat_entity = await bot.placeBoat(bot.blockAt(suitable_place));
+    if (!boat_entity) {
+        log(bot, "Failed to place the boat.");
+        return false;
+    }
+
+    await bot.mount(boat_entity);
+    log(bot, "Mounted the boat.");
+
+    const target_pos = new Vec3(x, y, z);
+    while (bot.entity.position.distanceTo(target_pos) > 2) {
+        await bot.lookAt(target_pos);
+        bot.setControlState('forward', true);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    bot.setControlState('forward', false);
+
+
+    await bot.dismount();
+    log(bot, "Dismounted the boat.");
+
+    return true;
+}
+
+async function findSuitablePlaceToLaunchBoat(bot) {
+    const water_blocks = bot.findBlocks({
+        matching: mc.getBlockId('water'),
+        maxDistance: 16,
+        count: 100
+    });
+
+    for (const water_block of water_blocks) {
+        const block_above = bot.blockAt(water_block.offset(0, 1, 0));
+        if (block_above.name === 'air') {
+            return water_block;
+        }
+    }
+
+    return null;
+}
