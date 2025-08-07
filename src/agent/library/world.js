@@ -2,6 +2,20 @@ import pf from 'mineflayer-pathfinder';
 import * as mc from '../../utils/mcdata.js';
 
 
+export function createMovements(bot) {
+    const movements = new pf.Movements(bot);
+    movements.canOpenDoors = true;
+    const blocksToAvoid = ['lava', 'fire', 'cactus'].map(name => mc.getBlockId(name)).filter(id => id !== null);
+    movements.blocksToAvoid = new Set(blocksToAvoid);
+    movements.allow1by1towers = true;
+    movements.scafoldingBlocks = [
+        mc.getBlockId('dirt'),
+        mc.getBlockId('cobblestone'),
+        mc.getBlockId('netherrack')
+    ].filter(id => id !== null);
+    return movements;
+}
+
 export function getNearestFreeSpace(bot, size=1, distance=8) {
     /**
      * Get the nearest empty space with solid blocks beneath it of the given size.
@@ -351,7 +365,7 @@ export async function isClearPath(bot, target) {
      * @param {Entity} target - The target to path to.
      * @returns {boolean} - True if there is a clear path, false otherwise.
      */
-    let movements = new pf.Movements(bot)
+    let movements = createMovements(bot)
     movements.canDig = false;
     movements.canPlaceOn = false;
     let goal = new pf.goals.GoalNear(target.position.x, target.position.y, target.position.z, 1);

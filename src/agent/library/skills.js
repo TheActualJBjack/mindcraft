@@ -1,5 +1,6 @@
 import * as mc from "../../utils/mcdata.js";
 import * as world from "./world.js";
+import { createMovements } from "./world.js";
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 
@@ -376,13 +377,13 @@ export async function defendSelf(bot, range=9) {
         await equipHighestAttack(bot);
         if (bot.entity.position.distanceTo(enemy.position) >= 4 && enemy.name !== 'creeper' && enemy.name !== 'phantom') {
             try {
-                bot.pathfinder.setMovements(new pf.Movements(bot));
+                bot.pathfinder.setMovements(createMovements(bot));
                 await bot.pathfinder.goto(new pf.goals.GoalFollow(enemy, 3.5), true);
             } catch (err) {/* might error if entity dies, ignore */}
         }
         if (bot.entity.position.distanceTo(enemy.position) <= 2) {
             try {
-                bot.pathfinder.setMovements(new pf.Movements(bot));
+                bot.pathfinder.setMovements(createMovements(bot));
                 let inverted_goal = new pf.goals.GoalInvert(new pf.goals.GoalFollow(enemy, 2));
                 await bot.pathfinder.goto(inverted_goal, true);
             } catch (err) {/* might error if entity dies, ignore */}
@@ -439,7 +440,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
                 );
             }
         }
-        const movements = new pf.Movements(bot);
+        const movements = createMovements(bot);
         movements.dontMineUnderFallingBlock = false;
         blocks = blocks.filter(
             block => movements.safeToBreak(block)
@@ -502,7 +503,7 @@ export async function pickupNearbyItems(bot) {
     let nearestItem = getNearestItem(bot);
     let pickedUp = 0;
     while (nearestItem) {
-        bot.pathfinder.setMovements(new pf.Movements(bot));
+        bot.pathfinder.setMovements(createMovements(bot));
         await bot.pathfinder.goto(new pf.goals.GoalFollow(nearestItem, 0.8), true);
         await new Promise(resolve => setTimeout(resolve, 200));
         let prev = nearestItem;
@@ -541,7 +542,7 @@ export async function breakBlockAt(bot, x, y, z) {
 
         if (bot.entity.position.distanceTo(block.position) > 4.5) {
             let pos = block.position;
-            let movements = new pf.Movements(bot);
+            let movements = createMovements(bot);
             movements.canPlaceOn = false;
             movements.allow1by1towers = false;
             bot.pathfinder.setMovements(movements);
@@ -712,13 +713,13 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
         // too close
         let goal = new pf.goals.GoalNear(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z, 2);
         let inverted_goal = new pf.goals.GoalInvert(goal);
-        bot.pathfinder.setMovements(new pf.Movements(bot));
+        bot.pathfinder.setMovements(createMovements(bot));
         await bot.pathfinder.goto(inverted_goal);
     }
     if (bot.entity.position.distanceTo(targetBlock.position) > 4.5) {
         // too far
         let pos = targetBlock.position;
-        let movements = new pf.Movements(bot);
+        let movements = createMovements(bot);
         bot.pathfinder.setMovements(movements);
         await bot.pathfinder.goto(new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
     }
@@ -1025,13 +1026,24 @@ export async function goToPosition(bot, x, y, z, min_distance=2) {
         log(bot, `Teleported to ${x}, ${y}, ${z}.`);
         return true;
     }
-    
-    const movements = new pf.Movements(bot);
+
+    const movements = createMovements(bot);
+    const hasScaffolding = movements.scafoldingBlocks.some(id => bot.inventory.hasItem(id));
+    if (!hasScaffolding) {
+        movements.allow1by1towers = false;
+    }
     bot.pathfinder.setMovements(movements);
-    
+
     const checkProgress = () => {
         if (bot.targetDigBlock) {
             const targetBlock = bot.targetDigBlock;
+            const importantBlocks = ['chest', 'ender_chest', 'trapped_chest', 'furnace', 'blast_furnace', 'smoker', 'crafting_table', 'anvil', 'chipped_anvil', 'damaged_anvil'];
+            if (importantBlocks.includes(targetBlock.name)) {
+                log(bot, `Pathfinding stopped: Attempting to break important block ${targetBlock.name}.`);
+                bot.pathfinder.stop();
+                bot.stopDigging();
+                return;
+            }
             const itemId = bot.heldItem ? bot.heldItem.type : null;
             if (!targetBlock.canHarvest(itemId)) {
                 log(bot, `Pathfinding stopped: Cannot break ${targetBlock.name} with current tools.`);
@@ -1040,19 +1052,27 @@ export async function goToPosition(bot, x, y, z, min_distance=2) {
             }
         }
     };
-    
+
     const progressInterval = setInterval(checkProgress, 1000);
-    
-    try {
-        await bot.pathfinder.goto(new pf.goals.GoalNear(x, y, z, min_distance));
-        log(bot, `You have reached at ${x}, ${y}, ${z}.`);
-        return true;
-    } catch (err) {
-        log(bot, `Pathfinding stopped: ${err.message}.`);
-        return false;
-    } finally {
-        clearInterval(progressInterval);
+
+    for (let i = 0; i < 3; i++) {
+        try {
+            await bot.pathfinder.goto(new pf.goals.GoalNear(x, y, z, min_distance));
+            log(bot, `You have reached at ${x}, ${y}, ${z}.`);
+            clearInterval(progressInterval);
+            return true;
+        } catch (err) {
+            log(bot, `Pathfinding attempt ${i + 1} failed: ${err.message}.`);
+            if (i < 2) {
+                log(bot, "Trying to get unstuck by moving away...");
+                await moveAway(bot, 3);
+            }
+        }
     }
+
+    clearInterval(progressInterval);
+    log(bot, `Pathfinding failed after 3 attempts.`);
+    return false;
 }
 
 export async function goToNearestBlock(bot, blockType,  min_distance=2, range=64) {
@@ -1127,7 +1147,7 @@ export async function goToPlayer(bot, username, distance=3) {
         return false;
     }
 
-    const move = new pf.Movements(bot);
+    const move = createMovements(bot);
     bot.pathfinder.setMovements(move);
     await bot.pathfinder.goto(new pf.goals.GoalFollow(player, distance), true);
 
@@ -1148,7 +1168,7 @@ export async function followPlayer(bot, username, distance=4) {
     if (!player)
         return false;
 
-    const move = new pf.Movements(bot);
+    const move = createMovements(bot);
     bot.pathfinder.setMovements(move);
     bot.pathfinder.setGoal(new pf.goals.GoalFollow(player, distance), true);
     log(bot, `You are now actively following player ${username}.`);
@@ -1183,10 +1203,10 @@ export async function moveAway(bot, distance) {
     const pos = bot.entity.position;
     let goal = new pf.goals.GoalNear(pos.x, pos.y, pos.z, distance);
     let inverted_goal = new pf.goals.GoalInvert(goal);
-    bot.pathfinder.setMovements(new pf.Movements(bot));
+    bot.pathfinder.setMovements(createMovements(bot));
 
     if (bot.modes.isOn('cheat')) {
-        const move = new pf.Movements(bot);
+        const move = createMovements(bot);
         const path = await bot.pathfinder.getPathTo(move, inverted_goal, 10000);
         let last_move = path.path[path.path.length-1];
         console.log(last_move);
@@ -1215,7 +1235,7 @@ export async function moveAwayFromEntity(bot, entity, distance=16) {
      **/
     let goal = new pf.goals.GoalFollow(entity, distance);
     let inverted_goal = new pf.goals.GoalInvert(goal);
-    bot.pathfinder.setMovements(new pf.Movements(bot));
+    bot.pathfinder.setMovements(createMovements(bot));
     await bot.pathfinder.goto(inverted_goal);
     return true;
 }
@@ -1234,7 +1254,7 @@ export async function avoidEnemies(bot, distance=16) {
     while (enemy) {
         const follow = new pf.goals.GoalFollow(enemy, distance+1); // move a little further away
         const inverted_goal = new pf.goals.GoalInvert(follow);
-        bot.pathfinder.setMovements(new pf.Movements(bot));
+        bot.pathfinder.setMovements(createMovements(bot));
         bot.pathfinder.setGoal(inverted_goal, true);
         await new Promise(resolve => setTimeout(resolve, 500));
         enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), distance);
@@ -1392,7 +1412,7 @@ export async function tillAndSow(bot, x, y, z, seedType=null) {
     // if distance is too far, move to the block
     if (bot.entity.position.distanceTo(block.position) > 4.5) {
         let pos = block.position;
-        bot.pathfinder.setMovements(new pf.Movements(bot));
+        bot.pathfinder.setMovements(createMovements(bot));
         await bot.pathfinder.goto(new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
     }
     if (block.name !== 'farmland') {
@@ -1438,7 +1458,7 @@ export async function activateNearestBlock(bot, type) {
     }
     if (bot.entity.position.distanceTo(block.position) > 4.5) {
         let pos = block.position;
-        bot.pathfinder.setMovements(new pf.Movements(bot));
+        bot.pathfinder.setMovements(createMovements(bot));
         await bot.pathfinder.goto(new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
     }
     await bot.activateBlock(block);
@@ -1500,5 +1520,102 @@ export async function digDown(bot, distance = 10) {
         }
     }
     log(bot, `Dug down ${distance} blocks.`);
+    return true;
+}
+
+export async function buildBridge(bot, direction, length) {
+    /**
+     * Build a bridge in the given direction.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {string} direction, the direction to build the bridge in. Can be 'forward', 'backward', 'left', 'right'.
+     * @param {number} length, the length of the bridge.
+     * @returns {Promise<boolean>} true if the bridge was built, false otherwise.
+     * @example
+     * await skills.buildBridge(bot, "forward", 10);
+     **/
+    const movements = createMovements(bot);
+    const hasScaffolding = movements.scafoldingBlocks.some(id => bot.inventory.hasItem(id));
+    if (!hasScaffolding) {
+        log(bot, "Cannot build bridge: No scaffolding blocks in inventory.");
+        return false;
+    }
+
+    const lookVec = bot.entity.lookVec.clone();
+    lookVec.y = 0;
+    lookVec.normalize();
+
+    let dir;
+    if (direction === 'forward') {
+        dir = lookVec;
+    } else if (direction === 'backward') {
+        dir = lookVec.scaled(-1);
+    } else if (direction === 'left') {
+        dir = new Vec3(-lookVec.z, 0, lookVec.x);
+    } else if (direction === 'right') {
+        dir = new Vec3(lookVec.z, 0, -lookVec.x);
+    } else {
+        log(bot, `Invalid direction: ${direction}.`);
+        return false;
+    }
+
+    log(bot, `Building a bridge of length ${length} in direction ${direction}.`);
+
+    for (let i = 0; i < length; i++) {
+        const target_pos = bot.entity.position.plus(dir);
+        await goToPosition(bot, target_pos.x, target_pos.y, target_pos.z, 0);
+
+        const block_below_pos = bot.entity.position.floored().offset(0, -1, 0);
+        const block_below = bot.blockAt(block_below_pos);
+        if (block_below.name === 'air') {
+            const scaffolding_item = movements.scafoldingBlocks.find(id => bot.inventory.hasItem(id));
+            if (scaffolding_item) {
+                const item = mc.getItemName(scaffolding_item);
+                await placeBlock(bot, item, block_below_pos.x, block_below_pos.y, block_below_pos.z);
+            } else {
+                log(bot, "Ran out of scaffolding blocks.");
+                return false;
+            }
+        }
+    }
+
+    log(bot, "Finished building bridge.");
+    return true;
+}
+
+export async function buildPillar(bot, height) {
+    /**
+     * Build a pillar of the given height.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {number} height, the height of the pillar.
+     * @returns {Promise<boolean>} true if the pillar was built, false otherwise.
+     * @example
+     * await skills.buildPillar(bot, 10);
+     **/
+    const movements = createMovements(bot);
+    const hasScaffolding = movements.scafoldingBlocks.some(id => bot.inventory.hasItem(id));
+    if (!hasScaffolding) {
+        log(bot, "Cannot build pillar: No scaffolding blocks in inventory.");
+        return false;
+    }
+
+    log(bot, `Building a pillar of height ${height}.`);
+
+    for (let i = 0; i < height; i++) {
+        const scaffolding_item = movements.scafoldingBlocks.find(id => bot.inventory.hasItem(id));
+        if (scaffolding_item) {
+            bot.setControlState('jump', true);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            const item = mc.getItemName(scaffolding_item);
+            const current_pos = bot.entity.position.floored();
+            await placeBlock(bot, item, current_pos.x, current_pos.y - 1, current_pos.z);
+            bot.setControlState('jump', false);
+            await new Promise(resolve => setTimeout(resolve, 200));
+        } else {
+            log(bot, "Ran out of scaffolding blocks.");
+            return false;
+        }
+    }
+
+    log(bot, "Finished building pillar.");
     return true;
 }
