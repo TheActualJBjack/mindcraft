@@ -112,6 +112,84 @@ export async function craftRecipe(bot, itemName, num=1) {
     return true;
 }
 
+export async function enchantItem(bot, item_name, enchantment_name) {
+    /**
+     * Enchant an item with a given enchantment.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {string} item_name, the name of the item to enchant.
+     * @param {string} enchantment_name, the name of the enchantment to apply.
+     * @returns {Promise<boolean>} true if the item was enchanted, false otherwise.
+     * @example
+     * await skills.enchantItem(bot, "diamond_sword", "sharpness");
+     **/
+    const item = bot.inventory.items().find(item => item.name === item_name);
+    if (!item) {
+        log(bot, `No ${item_name} in inventory.`);
+        return false;
+    }
+
+    let enchanting_table = await world.getNearestBlock(bot, 'enchanting_table', 128);
+    if (!enchanting_table) {
+        log(bot, "No enchanting table nearby, trying to craft one.");
+        await craftRecipe(bot, 'enchanting_table');
+        enchanting_table = await world.getNearestBlock(bot, 'enchanting_table', 128);
+        if (!enchanting_table) {
+            log(bot, "Failed to craft an enchanting table.");
+            return false;
+        }
+    }
+
+    await goToPosition(bot, enchanting_table.position.x, enchanting_table.position.y, enchanting_table.position.z);
+
+    const enchantment_window = await bot.openEnchantmentTable(enchanting_table);
+    if (enchantment_window) {
+        log(bot, "Opened enchanting table.");
+        const enchantments = enchantment_window.enchantments;
+        if (enchantments) {
+            log(bot, "Available enchantments:");
+            for (const enchantment of enchantments) {
+                log(bot, `${enchantment.name} (level ${enchantment.level})`);
+            }
+        } else {
+            log(bot, "No enchantments available.");
+        }
+        await bot.closeWindow(enchantment_window);
+    } else {
+        log(bot, "Failed to open enchanting table.");
+        return false;
+    }
+
+    return true;
+}
+
+import fs from 'fs';
+import { parse } from 'nucleation';
+
+export async function buildFromSchematic(bot, schematic_file) {
+    /**
+     * Build a structure from a schematic file.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {string} schematic_file, the path to the schematic file.
+     * @returns {Promise<boolean>} true if the structure was built, false otherwise.
+     * @example
+     * await skills.buildFromSchematic(bot, "schematics/house.schematic");
+     **/
+    try {
+        const data = fs.readFileSync(schematic_file);
+        const schematic = await parse(data);
+        const at = bot.entity.position.floored();
+        for (const block of schematic.blocks) {
+            const pos = at.plus(block.pos);
+            await placeBlock(bot, block.name, pos.x, pos.y, pos.z);
+        }
+        log(bot, `Finished building from schematic ${schematic_file}.`);
+        return true;
+    } catch (err) {
+        log(bot, `Error building from schematic: ${err.message}`);
+        return false;
+    }
+}
+
 export async function leadAnimal(bot, animal_name, x, y, z) {
     /**
      * Lead an animal to the given position.
@@ -147,6 +225,131 @@ export async function leadAnimal(bot, animal_name, x, y, z) {
     await bot.useOn(animal);
     log(bot, `Detached lead from ${animal_name}.`);
 
+    return true;
+}
+
+export async function mineOres(bot, ore_name, count) {
+    /**
+     * Mine a specified number of a given ore.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {string} ore_name, the name of the ore to mine.
+     * @param {number} count, the number of ores to mine.
+     * @returns {Promise<boolean>} true if the ores were mined, false otherwise.
+     * @example
+     * await skills.mineOres(bot, "coal_ore", 10);
+     **/
+    log(bot, `Mining ${count} ${ore_name}.`);
+    for (let i = 0; i < count; i++) {
+        const ore = await world.getNearestBlock(bot, ore_name, 128);
+        if (ore) {
+            await collectBlock(bot, ore_name, 1);
+        } else {
+            log(bot, `Could not find any ${ore_name} nearby.`);
+            return false;
+        }
+    }
+    log(bot, `Finished mining ${count} ${ore_name}.`);
+    return true;
+}
+
+export async function chopTrees(bot, count) {
+    /**
+     * Chop down a specified number of trees.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @param {number} count, the number of trees to chop down.
+     * @returns {Promise<boolean>} true if the trees were chopped down, false otherwise.
+     * @example
+     * await skills.chopTrees(bot, 10);
+     **/
+    log(bot, `Chopping down ${count} trees.`);
+    for (let i = 0; i < count; i++) {
+        const log_block = await world.getNearestBlock(bot, 'oak_log', 128); // just oak for now
+        if (log_block) {
+            await collectBlock(bot, 'oak_log', 1);
+        } else {
+            log(bot, `Could not find any trees nearby.`);
+            return false;
+        }
+    }
+    log(bot, `Finished chopping down ${count} trees.`);
+    return true;
+}
+
+export async function goToNether(bot) {
+    /**
+     * Build a nether portal and go to the nether.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @returns {Promise<boolean>} true if the bot went to the nether, false otherwise.
+     * @example
+     * await skills.goToNether(bot);
+     **/
+    const obsidian = bot.inventory.items().find(item => item.name === 'obsidian');
+    if (!obsidian || obsidian.count < 14) {
+        log(bot, "Not enough obsidian to build a nether portal.");
+        return false;
+    }
+    const flint_and_steel = bot.inventory.items().find(item => item.name === 'flint_and_steel');
+    if (!flint_and_steel) {
+        log(bot, "No flint and steel to light the portal.");
+        return false;
+    }
+
+    const suitable_place = await findSuitablePlaceToBuildPortal(bot);
+    if (!suitable_place) {
+        log(bot, "Could not find a suitable place to build the portal.");
+        return false;
+    }
+
+    await goToPosition(bot, suitable_place.x, suitable_place.y, suitable_place.z);
+
+    // build the frame
+    await placeBlock(bot, 'obsidian', suitable_place.x + 1, suitable_place.y, suitable_place.z);
+    await placeBlock(bot, 'obsidian', suitable_place.x + 2, suitable_place.y, suitable_place.z);
+    await placeBlock(bot, 'obsidian', suitable_place.x, suitable_place.y + 1, suitable_place.z);
+    await placeBlock(bot, 'obsidian', suitable_place.x + 3, suitable_place.y + 1, suitable_place.z);
+    await placeBlock(bot, 'obsidian', suitable_place.x, suitable_place.y + 2, suitable_place.z);
+    await placeBlock(bot, 'obsidian', suitable_place.x + 3, suitable_place.y + 2, suitable_place.z);
+    await placeBlock(bot, 'obsidian', suitable_place.x, suitable_place.y + 3, suitable_place.z);
+    await placeBlock(bot, 'obsidian', suitable_place.x + 3, suitable_place.y + 3, suitable_place.z);
+    await placeBlock(bot, 'obsidian', suitable_place.x + 1, suitable_place.y + 4, suitable_place.z);
+    await placeBlock(bot, 'obsidian', suitable_place.x + 2, suitable_place.y + 4, suitable_place.z);
+
+    // light the portal
+    await bot.equip(flint_and_steel, 'hand');
+    const portal_block = bot.blockAt(suitable_place.offset(1, 1, 0));
+    await bot.activateBlock(portal_block);
+
+    // step into the portal
+    await goToPosition(bot, suitable_place.x + 1.5, suitable_place.y + 1, suitable_place.z);
+
+    log(bot, "Went to the nether.");
+    return true;
+}
+
+async function findSuitablePlaceToBuildPortal(bot) {
+    const pos = bot.entity.position.floored();
+    for (let x = pos.x - 16; x < pos.x + 16; x++) {
+        for (let y = pos.y - 16; y < pos.y + 16; y++) {
+            for (let z = pos.z - 16; z < pos.z + 16; z++) {
+                const p = new Vec3(x, y, z);
+                if (isSuitableForPortal(bot, p)) {
+                    return p;
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function isSuitableForPortal(bot, pos) {
+    for (let x = 0; x < 4; x++) {
+        for (let y = 0; y < 5; y++) {
+            const p = pos.offset(x, y, 0);
+            if (bot.blockAt(p).name !== 'air') {
+                return false;
+            }
+        }
+    }
     return true;
 }
 
