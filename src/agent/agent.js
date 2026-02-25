@@ -143,10 +143,32 @@ export class Agent {
 
         this.bot.on('whisper', respondFunc);
         
-        this.bot.on('chat', (username, message) => {
-            if (serverProxy.getNumOtherAgents() > 0) return;
-            // only respond to open chat messages when there are no other agents
-            respondFunc(username, message);
+        this.bot.on('chat', async (username, message) => {
+            if (username === this.name) return;
+            if (settings.only_chat_with.length > 0 && !settings.only_chat_with.includes(username)) return;
+
+            // Check if we should respond
+            let should_respond = false;
+            let from_other_bot = convoManager.isOtherAgent(username);
+            let is_command = containsCommand(message);
+            let mentioned = message.toLowerCase().includes(this.name.toLowerCase());
+
+            if (from_other_bot) {
+                if (mentioned) should_respond = true; // Always respond if mentioned by another bot
+            } else {
+                if (is_command || mentioned) {
+                    should_respond = true; // Always respond to commands or mentions from users
+                } else if (serverProxy.getNumOtherAgents() > 0) {
+                    // Use LLM to decide if we should respond to general chat when other bots are present
+                    should_respond = await this.prompter.promptShouldRespondToChat(message);
+                } else {
+                    should_respond = true; // Default behavior when alone
+                }
+            }
+
+            if (should_respond) {
+                respondFunc(username, message);
+            }
         });
 
         // Set up auto-eat

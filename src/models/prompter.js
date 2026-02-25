@@ -417,6 +417,16 @@ export class Prompter {
         return res.trim().toLowerCase() === 'respond';
     }
 
+    async promptShouldRespondToChat(new_message) {
+        await this.checkCooldown();
+        let prompt = this.profile.chat_responder;
+        let messages = this.agent.history.getHistory();
+        messages.push({role: 'user', content: new_message});
+        prompt = await this.replaceStrings(prompt, null, null, messages);
+        let res = await this.chat_model.sendRequest([], prompt);
+        return res.trim().toLowerCase().includes('respond');
+    }
+
     async promptVision(messages, imageBuffer) {
         await this.checkCooldown();
         let prompt = this.profile.image_analysis;
