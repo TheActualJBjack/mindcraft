@@ -102,7 +102,7 @@ export class Prompter {
 
         try {
             if (embedding.api === 'google')
-                this.embedding_model = new Gemini(embedding.model, embedding.url);
+                this.embedding_model = new Gemini(embedding.model, embedding.url, null, this.agent.count_id);
             else if (embedding.api === 'openai')
                 this.embedding_model = new GPT(embedding.model, embedding.url);
             else if (embedding.api === 'replicate')
@@ -185,7 +185,7 @@ export class Prompter {
     _createModel(profile) {
         let model = null;
         if (profile.api === 'google')
-            model = new Gemini(profile.model, profile.url, profile.params);
+            model = new Gemini(profile.model, profile.url, profile.params, this.agent.count_id);
         else if (profile.api === 'openai')
             model = new GPT(profile.model, profile.url, profile.params);
         else if (profile.api === 'anthropic')
