@@ -3,7 +3,7 @@ import { toSinglePrompt, strictFormat } from '../utils/text.js';
 import { getKey } from '../utils/keys.js';
 
 export class Gemini {
-    constructor(model_name, url, params) {
+    constructor(model_name, url, params, index=0) {
         this.model_name = model_name;
         this.params = params;
         this.url = url;
@@ -30,7 +30,7 @@ export class Gemini {
             },
         ];
 
-        this.genAI = new GoogleGenerativeAI(getKey('GEMINI_API_KEY'));
+        this.genAI = new GoogleGenerativeAI(getKey('GEMINI_API_KEY', index));
     }
 
     async sendRequest(turns, systemMessage) {

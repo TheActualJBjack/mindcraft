@@ -102,7 +102,7 @@ export class Prompter {
 
         try {
             if (embedding.api === 'google')
-                this.embedding_model = new Gemini(embedding.model, embedding.url);
+                this.embedding_model = new Gemini(embedding.model, embedding.url, null, this.agent.count_id);
             else if (embedding.api === 'openai')
                 this.embedding_model = new GPT(embedding.model, embedding.url);
             else if (embedding.api === 'replicate')
@@ -185,7 +185,7 @@ export class Prompter {
     _createModel(profile) {
         let model = null;
         if (profile.api === 'google')
-            model = new Gemini(profile.model, profile.url, profile.params);
+            model = new Gemini(profile.model, profile.url, profile.params, this.agent.count_id);
         else if (profile.api === 'openai')
             model = new GPT(profile.model, profile.url, profile.params);
         else if (profile.api === 'anthropic')
@@ -415,6 +415,16 @@ export class Prompter {
         prompt = await this.replaceStrings(prompt, null, null, messages);
         let res = await this.chat_model.sendRequest([], prompt);
         return res.trim().toLowerCase() === 'respond';
+    }
+
+    async promptShouldRespondToChat(new_message) {
+        await this.checkCooldown();
+        let prompt = this.profile.chat_responder;
+        let messages = this.agent.history.getHistory();
+        messages.push({role: 'user', content: new_message});
+        prompt = await this.replaceStrings(prompt, null, null, messages);
+        let res = await this.chat_model.sendRequest([], prompt);
+        return res.trim().toLowerCase().includes('respond');
     }
 
     async promptVision(messages, imageBuffer) {
